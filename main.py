@@ -9,6 +9,8 @@ from scipy.misc import derivative
 from tkinter import *
 from sympy import *
 from tkinter import ttk
+from tkinter import filedialog as fd
+from tkinter.filedialog import asksaveasfile
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -19,11 +21,17 @@ dRx = []
 dRy = []
 dfx = []
 x_cur = [[]]
+x_cur1 = 0
+x_cur2 = 0
 num_points = 50
 x_res = []
 t1 = []
 a = 0
 b = 0
+t0 = 0
+method_in = ""
+method_out = ""
+
 def define_diff():
     xa = []
     xb = []
@@ -46,7 +54,9 @@ def define_diff():
 
 
 def solve_ode(x1, x2):
+
     plot = Tk()
+    plot.title("График")
     fig = Figure(figsize=(5, 5), dpi=100)
     plot1 = fig.add_subplot(111)
     plot1.plot(x1, x2)
@@ -65,7 +75,7 @@ def solve_ode(x1, x2):
     plot.mainloop()
 
 
-def fun_mat(y, t):
+def fun_mat(t, y):
     tt = Symbol("t")
     x = []
     for i in range(1, 7):
@@ -80,12 +90,10 @@ def fun_mat(y, t):
     return res
 
 def fi0(p0, a, b, t0):
-    t = np.linspace(t0, a)
-    res_ode = odeint(fun_mat, p0, t)
-    x_a_p0 = res_ode[-1]
-    t = np.linspace(t0, b)
-    res_ode = odeint(fun_mat, p0, t)
-    x_b_p0 = res_ode[-1]
+    res_ode = solve_ivp(fun_mat, [t0, a], p0, method=method_in).y[:,-1]
+    x_a_p0 = res_ode
+    res_ode = solve_ivp(fun_mat, [t0, b], p0, method=method_in).y[:,-1]
+    x_b_p0 = res_ode
 
     xa = []
     xb = []
@@ -102,8 +110,8 @@ def fi0(p0, a, b, t0):
     return res
 
 def dRdxdy(p, a, b, t0):
-    x_a_p = x_cur[0]
-    x_b_p = x_cur[-1]
+    x_a_p = x_cur1.sol(a)
+    x_b_p = x_cur2.sol(b)
     dRdx = np.zeros((n, n))
     dRdy = np.zeros((n, n)) #laksjdflkajsefjsaeiojfioasjfiojasef
     xa = []
@@ -130,7 +138,10 @@ def dRdxdy(p, a, b, t0):
 def Xrhs(tt, y):
     t = Symbol("t")
     x = []
-    x_c = x_cur[ind(tt, a, b)]
+    if tt >= t0:
+        x_c = x_cur2.sol(tt)
+    else:
+        x_c = x_cur1.sol(tt)
     for i in range(1, 7):
         x.append(Symbol("x" + str(i)))
     dfdxp = np.zeros((n, n))
@@ -149,25 +160,17 @@ def X(p, a, b):
     for i in range(n):
         init = np.zeros(n)
         init[i] = 1
-        res.append(solve_ivp(Xrhs, [a, b], init).y[:,-1])
+        res.append(solve_ivp(Xrhs, [a, b], init, method=method_in).y[:,-1])
     return np.array(res).transpose()
 
 
-def ind(t, a, b):
-    res = int(np.floor((t - a) * (num_points - 1) / (b - a)))
-    if (res < 0):
-        res = 0
-    if (res > num_points - 1):
-        res = num_points - 1
-    return res
 
 
 def dfidmu(p, a, b, t0):
-    t = np.linspace(a, b, num=num_points)
-    global x_cur
-    x_cur = odeint(fun_mat, p, np.flip(t[0:(ind(t0, a, b) + 1)]))
-    x_cur = np.flip(x_cur, 0)
-    x_cur = np.append(x_cur, odeint(fun_mat, p, t[ind(t0, a, b):])[1:], axis=0)
+    global x_cur1, x_cur2
+    x_cur1 = solve_ivp(fun_mat, [t0, a], p, method=method_in, dense_output=True)
+    x_cur2 = solve_ivp(fun_mat, [t0, b], p, method=method_in, dense_output=True)
+
 
     R = dRdxdy(p, a, b, t0)
     Xa = X(p, t0, a)
@@ -178,24 +181,11 @@ def dfidmu(p, a, b, t0):
 def prhs(mu, p, a, b, t0, f0):
 
     print(p, " ", mu)
-    pb['value'] = mu * 100
+    if pb['value'] < mu * 100:
+        pb['value'] = mu * 100
     window.update()
     f_inv = np.linalg.inv(dfidmu(p, a, b, t0))
     return -np.matmul(f_inv, f0)
-
-def test():
-    func.append(parse_expr("x3*x2"))
-    func.append(parse_expr("x3*(-x1+sin(x2))"))
-    func.append(parse_expr("0"))
-    func.append(parse_expr("0"))
-    edge.append(parse_expr("xa1-xa4"))
-    edge.append(parse_expr("xb1-xb4"))
-    edge.append(parse_expr("xa2"))
-    edge.append(parse_expr("xb2"))
-    global a, b, n
-    a = 0
-    b = 1
-    n = 4
 
 
 pb = 0
@@ -212,8 +202,9 @@ def draw():
 
 
 def tm():
+    global method_in, method_out
     window.update()
-    global a, b
+    global a, b, t0
     global x_res
     global t1
     global func, edge
@@ -230,43 +221,138 @@ def tm():
         if input != "":
             edge.append(parse_expr(input, evaluate=True))
     global n
-    print(n)
     n = len(func)
-    print(n)
 
     a = eval(init_a.get("1.0", "end-1c"))
     b = eval(init_b.get("1.0", "end-1c"))
     p0 = np.array(eval(init_value.get("1.0", "end-1c")))
     t0 = eval(init_time.get("1.0", "end-1c"))
-
-
-    #test()
-    #p0 = [2,0,2*3.1415926,2]
-    #t0 = 0
+    method_in = mth_in.get()
+    method_out = mth_out.get()
 
     define_diff()
     f0 = fi0(p0, a, b, t0)
     rhs = lambda tt, y: prhs(tt, y, a, b, t0, f0)
-    mu = np.linspace(0, 1, num=3)
-    p_res = solve_ivp(rhs, [0,1], p0, method='RK23').y[:,-1]
-    t1 = np.linspace(t0, a)
-    x_res = odeint(fun_mat, p_res, t1)
+    p_res = solve_ivp(rhs, [0,1], p0, method=method_out).y[:,-1]
+    t1 = np.linspace(t0, a, num=50)
+    x_res = odeint(fun_mat, p_res, t1, tfirst=True)
     x_res = np.flip(x_res, 0)
-    t = np.linspace(t0, b)
-    x_res = np.append(x_res, odeint(fun_mat, p_res, t), axis=0)
+    t = np.linspace(t0, b, num=50)
+    x_res = np.append(x_res, odeint(fun_mat, p_res, t, tfirst=True), axis=0)
     t1 = np.flip(t1)
     t1 = np.append(t1, t)
+    print(t1)
+    print(x_res)
     button_draw["state"] = NORMAL
     window.update()
+
+def select_file():
+    filetypes = (
+        ('text files', '*.txt'),
+        ('All files', '*.*')
+    )
+
+    f = fd.askopenfile(
+        title='Open a file',
+        initialdir='C://problems',
+        filetypes=filetypes)
+    l = f.readlines()
+    print(l)
+    i = 0
+    for i in range(len(l)):
+        if l[i] == '\n':
+            break
+        texts_diff[i].insert("1.0", l[i])
+
+    k = i + 1
+    for i in range(k, len(l)):
+        if l[i] == '\n':
+            break
+        texts_edge[i - k].insert("1.0", l[i])
+
+    i = i + 1
+    init_a.insert("1.0", l[i])
+    i = i + 1
+    init_b.insert("1.0", l[i])
+    i = i + 1
+    init_value.insert("1.0", l[i])
+    i = i + 1
+    init_time.insert("1.0", l[i])
+
+def select_file():
+    filetypes = (
+        ('text files', '*.txt'),
+        ('All files', '*.*')
+    )
+
+    f = fd.askopenfile(
+        title='Open a file',
+        initialdir='C://problems',
+        filetypes=filetypes)
+    l = f.readlines()
+    print(l)
+    i = 0
+    for i in range(len(l)):
+        if l[i] == '\n':
+            break
+        texts_diff[i].insert("1.0", l[i])
+
+    k = i + 1
+    for i in range(k, len(l)):
+        if l[i] == '\n':
+            break
+        texts_edge[i - k].insert("1.0", l[i])
+
+    i = i + 1
+    init_a.insert("1.0", l[i])
+    i = i + 1
+    init_b.insert("1.0", l[i])
+    i = i + 1
+    init_value.insert("1.0", l[i])
+    i = i + 1
+    init_time.insert("1.0", l[i])
+
+def save_file():
+    f = asksaveasfile(
+        initialfile = 'Безымянный.txt',
+        defaultextension=".txt",
+        filetypes=[("All Files","*.*"), ("Text Documents","*.txt")]
+    )
+    for i in range(1, 7):
+        input = texts_diff[i - 1].get("1.0", "end-1c")
+        if input == "":
+            break
+        f.write(input)
+    f.write("\n")
+    for i in range(1, 7):
+        input = texts_edge[i - 1].get("1.0", "end-1c")
+        if input == "":
+            break
+        f.write(input)
+    f.write("\n")
+    f.write(init_a.get("1.0", "end-1c"))
+    f.write(init_b.get("1.0", "end-1c"))
+    f.write(init_value.get("1.0", "end-1c"))
+    f.write(init_time.get("1.0", "end-1c"))
 
 
 
 window = Tk()
-window.title("BVP")
+window.title("Метод продолжения по параметру")
 window.geometry("1200x500")
 
+mainmenu = Menu(window)
+window.config(menu=mainmenu)
 
-font = ("Comic Sans MS", 15)
+filemenu = Menu(mainmenu, tearoff=0)
+filemenu.add_command(label="Открыть...", command=select_file)
+filemenu.add_command(label="Сохранить...", command=save_file)
+filemenu.add_command(label="Выход")
+
+mainmenu.add_cascade(label="Файл", menu=filemenu)
+
+
+font = ("Inter", 15)
 texts_diff = []
 
 
@@ -275,7 +361,7 @@ fr.pack(side=LEFT)
 
 fr1 = Frame(fr)
 fr1.pack(side=TOP)
-Label(fr1, text="Введите систему дифф уравнений:", font=font).pack(side="top", expand=True, pady=5)
+Label(fr1, text="Введите систему дифференциальных уравнений:", font=font).pack(side="top", expand=True, pady=5)
 
 for i in range(1, 7):
     fr1 = Frame(fr)
@@ -294,9 +380,22 @@ init_b.pack(side="left", expand=True, pady=5)
 
 fr1 = Frame(fr)
 fr1.pack(side=TOP)
-Label(fr1, text="Начальное время:", font=font).pack(side="left", expand=True, pady=5)
+Label(fr1, text="Время t*:", font=font).pack(side="left", expand=True, pady=5)
 init_time = Text(fr1, width=20, height=1, font=("Arial", 15))
 init_time.pack(side="left", expand=True, pady=5)
+
+fr1 = Frame(fr)
+fr1.pack(side=TOP)
+Label(fr1, text="Метод для решения внутренней задачи:", font=font).pack(side="left", expand=True, pady=5, padx=15)
+
+mth_in = ttk.Combobox(
+    fr1,
+    width = 5,
+    state="readonly",
+    values=["RK45", "RK23", "DOP853", "Radau", "BDF", "LSODA"]
+)
+mth_in.pack(pady=5, side=LEFT)
+
 
 
 fr = Frame(window)
@@ -304,7 +403,7 @@ fr.pack(side=RIGHT)
 
 fr1 = Frame(fr)
 fr1.pack(side=TOP)
-Label(fr1, text="Введите систему начальных условий:", font=font).pack(side="top", expand=True, pady=5)
+Label(fr1, text="Введите систему краевых условий:", font=font).pack(side="top", expand=True, pady=5)
 
 texts_edge = []
 
@@ -339,17 +438,30 @@ dr2 = ttk.Combobox(
     state="readonly",
     values=["t", "x1", "x2", "x3", "x4", "x5", "x6"]
 )
-dr1.pack(pady=16, side=LEFT)
-dr2.pack(pady=16, side=LEFT)
+dr1.pack(pady=5, side=LEFT)
+dr2.pack(pady=5, side=LEFT)
 button_draw = Button(fr1, text="Нарисовать", command=draw, state=DISABLED)
-button_draw.pack(side=LEFT, fill=BOTH, pady=16, padx=15)
+button_draw.pack(side=LEFT, fill=BOTH, pady=5, padx=15)
+
+fr1 = Frame(fr)
+fr1.pack(side=TOP)
+Label(fr1, text="Метод для решения внешней задачи:", font=font).pack(side="left", expand=True, pady=5, padx=15)
+
+mth_out = ttk.Combobox(
+    fr1,
+    width = 5,
+    state="readonly",
+    values=["RK45", "RK23", "DOP853", "Radau", "BDF", "LSODA"]
+)
+mth_out.pack(pady=5, side=LEFT)
+
 
 
 fr = Frame(window)
 fr.pack(side=BOTTOM)
-Button(fr, text="Выполнить", command=tm).pack(side=BOTTOM, fill=BOTH, pady=16)
+Button(fr, text="Выполнить", command=tm).pack(side=BOTTOM, fill=BOTH, pady=5)
 pb = ttk.Progressbar(window, orient="horizontal", length=200, value=0)
-pb.pack(pady=16, side=BOTTOM)
+pb.pack(pady=5, side=BOTTOM)
 
 
 func = []
